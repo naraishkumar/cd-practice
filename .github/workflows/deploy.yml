@@ -1,19 +1,60 @@
 
-name: Deploy Static Website
+name: CI CD Pipeline
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
-  deploy:
+  # CI: Validate website before deployment
+  test:
+    name: Validate HTML
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check index.html exists
+        run: test -f index.html
+
+      - name: Validate HTML
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          class Validator(HTMLParser):
+              def error(self, message):
+                  raise ValueError(message)
+
+          html = Path("index.html").read_text(encoding="utf-8")
+          assert "<!DOCTYPE html>" in html.upper().replace(
+              "<!DOCTYPE HTML>", "<!DOCTYPE html>"
+          ), "Missing HTML doctype"
+          assert "<html" in html.lower(), "Missing html tag"
+          assert "</html>" in html.lower(), "Missing closing html tag"
+          Validator().feed(html)
+          print("Basic HTML checks passed")
+          PY
+
+  # CD: Deploy only if CI succeeds
+  deploy:
+    name: Deploy GitHub Pages
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
     environment:
       name: github-pages
@@ -26,11 +67,11 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload Website Files
+      - name: Upload Website
         uses: actions/upload-pages-artifact@v4
         with:
           path: '.'
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy Website
         id: deployment
         uses: actions/deploy-pages@v4
